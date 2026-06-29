@@ -3,17 +3,23 @@
             [babashka.http-client :as http]
             [cheshire.core :as json]))
 
-(defn server-up? []
+(defn find-free-port []
+  (let [socket (java.net.ServerSocket. 0)
+        port (.getLocalPort socket)]
+    (.close socket)
+    port))
+
+(defn server-up? [port]
   (try
-    (= 200 (:status (http/get "http://localhost:8793/")))
+    (= 200 (:status (http/get (str "http://localhost:" port "/"))))
     (catch Exception _
       false)))
 
-(defn wait-for-server [timeout-seconds]
-  (println "Waiting for Wrangler dev server to start...")
+(defn wait-for-server [port timeout-seconds]
+  (println "Waiting for Wrangler dev server to start on port" port "...")
   (loop [elapsed 0.0]
     (cond
-      (server-up?) (do (println "Server is healthy!") true)
+      (server-up? port) (do (println "Server is healthy!") true)
       (>= elapsed timeout-seconds) (throw (Exception. "Server did not start in time"))
       :else (do
               (Thread/sleep 500)
@@ -31,43 +37,41 @@
       (assert (= v (get body k))
               (str "Expected key " k " to be " v ", got " (get body k))))))
 
-(defn run-tests []
-  (test-endpoint "http://localhost:8793/"
-                 {:gleamunison_sc "Self-contained GleamUnison WASM — zero JS imports"})
-  
-  (test-endpoint "http://localhost:8793/local_var_index?lv=77"
-                 {:function "local_var_index" :lv "77" :result 77})
-  
-  (test-endpoint "http://localhost:8793/range?start=3&end=10"
-                 {:function "range" :start "3" :end "10" :result 3})
-  
-  (test-endpoint "http://localhost:8793/range?start=10&end=3"
-                 {:function "range" :start "10" :end "3" :result 0})
-  
-  (test-endpoint "http://localhost:8793/hash?n=42"
-                 {:function "hash" :n "42" :result 704659998})
-  
-  (test-endpoint "http://localhost:8793/level1"
-                 {:function "level1" :result 100})
-  
-  ;; Let's inspect state_demo behavior and verify persistence/changes
-  (println "Testing state_demo persistence...")
-  (let [r1 (json/parse-string (:body (http/get "http://localhost:8793/state_demo?val=5")) true)
-        r2 (json/parse-string (:body (http/get "http://localhost:8793/state_demo?val=5")) true)]
-    (println "  First query result:" r1)
-    (println "  Second query result:" r2)
-    (assert (= 6 (:result r1)) (str "Expected 6, got " (:result r1)))
-    ;; With global instantiation, does state change or accumulate? Let's check.
-    ;; Note: The original stub just returns val + 1, or it could write to the KV store.
-    ;; Let's log if there is any difference.
-    ))
+(defn run-tests [port]
+  (let [base-url (str "http://localhost:" port)]
+    (test-endpoint (str base-url "/")
+                   {:gleamunison_sc "Self-contained GleamUnison WASM — zero JS imports"})
+    
+    (test-endpoint (str base-url "/local_var_index?lv=77")
+                   {:function "local_var_index" :lv "77" :result 77})
+    
+    (test-endpoint (str base-url "/range?start=3&end=10")
+                   {:function "range" :start "3" :end "10" :result 3})
+    
+    (test-endpoint (str base-url "/range?start=10&end=3")
+                   {:function "range" :start "10" :end "3" :result 0})
+    
+    (test-endpoint (str base-url "/hash?n=42")
+                   {:function "hash" :n "42" :result 704659998})
+    
+    (test-endpoint (str base-url "/level1")
+                   {:function "level1" :result 100})
+    
+    ;; Let's inspect state_demo behavior and verify persistence/changes
+    (println "Testing state_demo persistence...")
+    (let [r1 (json/parse-string (:body (http/get (str base-url "/state_demo?val=5"))) true)
+          r2 (json/parse-string (:body (http/get (str base-url "/state_demo?val=5"))) true)]
+      (println "  First query result:" r1)
+      (println "  Second query result:" r2)
+      (assert (= 6 (:result r1)) (str "Expected 6, got " (:result r1))))))
 
 (defn run-tests! []
-  (let [w-proc (process "npx wrangler dev --port 8793 --ip 127.0.0.1" {:out :inherit :err :inherit})]
+  (let [port (find-free-port)
+        w-proc (process (str "npx wrangler dev --port " port " --ip 127.0.0.1") {:out :inherit :err :inherit})]
     (try
-      (wait-for-server 15)
-      (run-tests)
-      (println "SUCCESS: All tests completed successfully!")
+      (wait-for-server port 15)
+      (run-tests port)
+      (println "SUCCESS: All tests completed successfully on port" port "!")
       (catch Exception e
         (println "ERROR: Tests failed!")
         (.printStackTrace e)
