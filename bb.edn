@@ -1,0 +1,13 @@
+{:paths ["scripts"]
+ :tasks
+ {:requires ([babashka.process :as p]
+             [test])
+
+  dev {:doc "Start Wrangler local development server on port 8793"
+       :task (p/shell "npx wrangler dev --port 8793 --ip 127.0.0.1")}
+
+  test {:doc "Run automated integration tests (spins up wrangler dev, asserts endpoints, and shuts it down)"
+        :task (test/run-tests!)}
+
+  deploy {:doc "Deploy the Cloudflare Worker to production"
+          :task (p/shell "npx wrangler deploy")}}}

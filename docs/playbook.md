@@ -13,7 +13,25 @@ A playbook detailing the architecture, coding standards, and workflows for this 
 * **File Size Constraint**: Maintain all files under `250` lines of code to encourage high cohesion and low coupling.
 * **No npm Directives**: Always use `npx` for executing tools (e.g. `npx wrangler`) to avoid local dependency sprawl.
 * **Babashka Scripting**: All auxiliary scripts, task automation, and build steps must use Clojure/Babashka instead of Python or shell scripts.
-* **Test Verification**: All modifications must be verified through the automated Babashka suite:
+
+## Task Runner Commands (Developer Ergonomics)
+
+This repository includes a `bb.edn` task runner to simplify local development:
+
+* **List Tasks**: List all available tasks.
   ```bash
-  bb scripts/test.clj
+  bb tasks
   ```
+* **Local Development**: Run Wrangler dev server locally on port 8793.
+  ```bash
+  bb dev
+  ```
+* **Verify Work**: Run the automated integration test suite.
+  ```bash
+  bb test
+  ```
+* **Deploy to Production**: Deploy the Cloudflare Worker.
+  ```bash
+  bb deploy
+  ```
+

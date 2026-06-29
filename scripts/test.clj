@@ -62,7 +62,7 @@
     ;; Let's log if there is any difference.
     ))
 
-(defn -main []
+(defn run-tests! []
   (let [w-proc (process "npx wrangler dev --port 8793 --ip 127.0.0.1" {:out :inherit :err :inherit})]
     (try
       (wait-for-server 15)
@@ -76,4 +76,5 @@
         (println "Stopping Wrangler dev server...")
         (destroy-tree w-proc)))))
 
-(-main)
+(when (= *file* (System/getProperty "babashka.file"))
+  (run-tests!))
