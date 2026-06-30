@@ -1,6 +1,6 @@
 # GleamUnison on Cloudflare Workers
 
-A self-contained Cloudflare Worker running GleamUnison core functions compiled to WebAssembly. **Zero JavaScript imports** — all 17 FFI stubs are pure WASM functions.
+A Cloudflare Worker running GleamUnison core functions compiled to WebAssembly. **Dual-variant architecture** — a self-contained variant with zero JS imports and a Cloudflare-bound variant with real host FFI bindings (console logging, live timestamps).
 
 ## Gap Analysis: gleamwasm vs. Other Gleam-to-Wasm Ecosystem Approaches
 
@@ -45,71 +45,99 @@ The gleamwasm compiler produces three WASM variants, all in this project:
 | File | Description | Size | Imports |
 |------|-------------|------|---------|
 | `gleamunison.wasm` | Basic WASM, no adapter stubs | ~300 bytes | 0 |
-| `gleamunison_cf.wasm` | With 12 JS import stubs | ~3KB | 12 JS |
-| `gleamunison_sc.wasm` | Self-contained — all stubs in WASM | ~3KB | 0 |
+| `gleamunison_cf.wasm` | With 12 JS import stubs (active) | ~3KB | 12 JS |
+| `gleamunison_sc.wasm` | Self-contained — all stubs in WASM (active) | ~3KB | 0 |
 
-The active variant is `gleamunison_sc.wasm` (self-contained). All 17 builtins are pure WASM MVP instructions with zero GC operations, making it fully compatible with Cloudflare Workers' V8 runtime.
+The worker runs **both** `gleamunison_sc.wasm` (self-contained) and `gleamunison_cf.wasm` (Cloudflare-bound) simultaneously. The CF variant connects to the V8 host runtime via 12 FFI imports for real `console.log` output and live `Date.now()` / `Date.timestamp()` values. The SC variant remains pure WASM with zero external dependencies and works on any WASM runtime.
 
 ## API Endpoints
 
+The worker exposes both variants under separate path prefixes, plus legacy unprefixed routes.
+
+### Root metadata
+
 ### `GET /`
-Returns module info: available exports and endpoint documentation.
+
+Returns both variants' available exports and endpoint documentation.
 
 ```json
 {
-  "exports": ["local_var_index", "range", "hash", "level1", "state_demo"],
+  "gleamunison_sc": "Self-contained GleamUnison WASM — zero JS imports",
+  "gleamunison_cf": "Cloudflare-bound GleamUnison WASM — 12 JS FFI imports",
+  "sc_exports": ["local_var_index", "range", "hash", "level1", "state_demo"],
+  "cf_exports": ["local_var_index", "range", "hash", "level1", "state_demo"],
   "endpoints": {
-    "/local_var_index?lv=N": "de Bruijn index extractor",
-    "/range?start=N&end=M": "range base case",
-    "/hash?n=N": "FNV-like hash",
-    "/level1": "integer comparison",
-    "/state_demo?val=N": "simulated state mutation"
-  }
+    "/sc/local_var_index?lv=N": "identity",
+    "/sc/range?start=N&end=M": "range base case",
+    "/sc/hash?n=N": "FNV-like hash",
+    "/sc/level1": "integer comparison",
+    "/sc/state_demo?val=N": "simulated state mutation",
+    "/cf/local_var_index?lv=N": "identity (host-bound)",
+    "/cf/range?start=N&end=M": "range base case (host-bound)",
+    "/cf/hash?n=N": "FNV-like hash (host-bound)",
+    "/cf/level1": "integer comparison (host-bound)",
+    "/cf/state_demo?val=N": "simulated state mutation (host-bound)"
+  },
+  "legacy": "Unprefixed endpoints route to self-contained for backwards compatibility"
 }
 ```
 
-### `GET /local_var_index?lv=N`
+### Self-Contained Variant (`/sc/*`)
+
+### `GET /sc/local_var_index?lv=N`
 Identity function — extracts de Bruijn index.
 
 ```bash
-curl http://localhost:8793/local_var_index?lv=77
-# {"function":"local_var_index","lv":"77","result":77}
+curl http://localhost:8793/sc/local_var_index?lv=77
+# {"function":"local_var_index","lv":"77","result":77,"variant":"sc"}
 ```
 
-### `GET /range?start=N&end=M`
+### `GET /sc/range?start=N&end=M`
 Range base case — if start > end returns 0, else returns start.
 
 ```bash
-curl http://localhost:8793/range?start=10&end=3
-# {"function":"range","start":"10","end":"3","result":0}
+curl http://localhost:8793/sc/range?start=10&end=3
+# {"function":"range","start":"10","end":"3","result":0,"variant":"sc"}
 
-curl http://localhost:8793/range?start=3&end=10
-# {"function":"range","start":"3","end":"10","result":3}
+curl http://localhost:8793/sc/range?start=3&end=10
+# {"function":"range","start":"3","end":"10","result":3,"variant":"sc"}
 ```
 
-### `GET /hash?n=N`
+### `GET /sc/hash?n=N`
 FNV-like hash — n × 16,777,619.
 
 ```bash
-curl http://localhost:8793/hash?n=42
-# {"function":"hash","n":"42","result":704659998}
+curl http://localhost:8793/sc/hash?n=42
+# {"function":"hash","n":"42","result":704659998,"variant":"sc"}
 ```
 
-### `GET /level1`
+### `GET /sc/level1`
 Integer comparison — 1 < 2 → 100.
 
 ```bash
-curl http://localhost:8793/level1
-# {"function":"level1","result":100}
+curl http://localhost:8793/sc/level1
+# {"function":"level1","result":100,"variant":"sc"}
 ```
 
-### `GET /state_demo?val=N`
+### `GET /sc/state_demo?val=N`
 Simulated state mutation — val + 1.
 
 ```bash
-curl http://localhost:8793/state_demo?val=99
-# {"function":"state_demo","val":"99","result":100}
+curl http://localhost:8793/sc/state_demo?val=99
+# {"function":"state_demo","val":"99","result":100,"variant":"sc"}
 ```
+
+### Cloudflare-Bound Variant (`/cf/*`)
+
+All `/cf/*` endpoints are identical to `/sc/*` but execute via `gleamunison_cf.wasm` with live host FFI:
+
+- **`console.log`** — log calls from WASM are bridged to Cloudflare's logging
+- **`Date.now()` / `Date.timestamp()`** — real system time instead of hardcoded zero
+- **12 FFI imports** — hash, state, file I/O stubs connected for future expansion
+
+### Legacy Routes (Backwards Compatible)
+
+Unprefixed endpoints (`/local_var_index`, `/range`, `/hash`, `/level1`, `/state_demo`) still work and route to the self-contained variant.
 
 ## Architecture
 
@@ -117,16 +145,16 @@ curl http://localhost:8793/state_demo?val=99
 gleamunison-cf/
 ├── wrangler.toml            # Cloudflare Workers config
 ├── src/
-│   ├── index.js             # Worker entry point (routes + WASM glue)
+│   ├── index.js             # Worker entry point (dual-variant routing + FFI glue)
 │   ├── gleamunison.wasm     # Basic WASM (no adapter)
-│   ├── gleamunison_cf.wasm  # With JS import stubs
-│   └── gleamunison_sc.wasm  # Self-contained (active) — zero imports
+│   ├── gleamunison_cf.wasm  # Cloudflare-bound — 12 JS imports
+│   └── gleamunison_sc.wasm  # Self-contained — zero imports
+├── scripts/
+│   └── test.clj             # Babashka integration tests (sc + cf variants)
 └── README.md
 ```
 
-### WASM Runtime Builtins (Self-Contained)
-
-All 17 builtins are pure WASM functions with zero GC instructions:
+### Self-Contained Builtins
 
 | Builtin | Signature | Description |
 |---------|-----------|-------------|
@@ -147,6 +175,25 @@ All 17 builtins are pure WASM functions with zero GC instructions:
 | `$timestamp` | `() -> i32` | Timestamp stub (returns 0) |
 | `$eval` | `(i32, i32) -> i32` | Simple identity eval |
 | `$memcpy` | `(i32, i32, i32) -> i32` | Byte-by-byte memory copy |
+
+### Cloudflare-Bound FFI Imports
+
+All 12 imports in the `gleamunison` namespace are bridged to the V8 host runtime:
+
+| Import | Signature | JS Binding |
+|--------|-----------|------------|
+| `log` | `(i32, i32) -> i32` | `console.log` (real-time Cloudflare logging) |
+| `now_ms` | `() -> i64` | `BigInt(Date.now())` (live millisecond clock) |
+| `timestamp` | `() -> i32` | `Math.floor(Date.now()/1000)` (live second clock) |
+| `hash_bytes` | `(i32, i32) -> i32` | Zero-stub (ready for custom hashing) |
+| `hex_to_bytes` | `(i32, i32) -> i32` | Zero-stub |
+| `hash_equal` | `(i32, i32, i32, i32) -> i32` | Zero-stub |
+| `hash_to_hex` | `(i32, i32) -> i32` | Zero-stub |
+| `state_get` | `(i32, i32) -> i32` | Zero-stub (ready for KV/DO backend) |
+| `state_set` | `(i32, i32, i32, i32) -> i32` | Zero-stub |
+| `file_read` | `(i32, i32) -> i32` | Zero-stub |
+| `file_write` | `(i32, i32, i32, i32) -> i32` | Zero-stub |
+| `eval` | `(i32, i32) -> i32` | Zero-stub |
 
 ### Exported Application Functions
 
