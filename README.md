@@ -2,7 +2,29 @@
 
 A self-contained Cloudflare Worker running GleamUnison core functions compiled to WebAssembly. **Zero JavaScript imports** — all 17 FFI stubs are pure WASM functions.
 
+## Gap Analysis: gleamwasm vs. Other Gleam-to-Wasm Ecosystem Approaches
+
+To understand `gleamwasm`'s architectural position, we evaluate it against alternative methods for running Gleam code or targeting WebAssembly in the wider ecosystem:
+
+| Approach / Tool | Nature | Wasm Compilation Type | Primary Run Targets | Complexity vs. Utility |
+| :--- | :--- | :--- | :--- | :--- |
+| **`gleamwasm` (Current)** | Direct Gleam-to-Wasm Compiler | Compiles Gleam functions to low-level native Wasm instructions. | Any Wasm Runtime (V8, Wasmtime, CF Workers) | **Complexity: Low-Medium / Utility: High** (Direct compilation of core pure functional structures). |
+| **Official JS Compiler Target** | Target backend compiler | Compiles Gleam to ES modules JavaScript. | Browser, Node, Bun, CF Workers | **Complexity: Low / Utility: High** (Easy integration with standard NPM tools and UI libs like Lustre). |
+| **`gl_wasm`** | Wasm byte generation library | A programmatic AST writer library written in Gleam. | Outputs custom `.wasm` bytecode binaries. | **Complexity: High / Utility: Medium** (Requires writing Wasm assembly instructions manually in Gleam). |
+| **`gwr` (Wasm Runtime)** | Wasm interpreter | An interpreter engine written in Gleam to run compiled Wasm. | Erlang BEAM VM | **Complexity: High / Utility: Low-Medium** (Intended to read and run arbitrary Wasm inside BEAM, not compile Gleam to Wasm). |
+
+### Key Differences and Trade-offs
+
+- **Direct Wasm Compilation (`gleamwasm`) vs. JS Compilation Backend**:
+  - *`gleamwasm`* compiles to direct WebAssembly bytecode, yielding maximum safety, mathematical purity, sandboxed execution boundaries, and extremely low startup overhead (1-10ms). However, it lacks first-class access to standard JS libraries or Web APIs without FFI imports.
+  - *The official JS backend* compiles Gleam directly to native JavaScript, offering zero-cost access to standard JS engines and the NPM library ecosystem, but loses sandboxing security guarantees and code content-addressability.
+- **Direct Wasm Compilation vs. Bytecode Assembly Libraries (`gl_wasm`)**:
+  - *`gl_wasm`* is a library to *generate* WebAssembly binaries (similar to a code generator package). It is not a compiler for compiling Gleam code files down to Wasm bytecode. `gleamwasm` performs the actual compilation of Gleam expressions to Wasm automatically.
+
+---
+
 ## Quick Start
+
 
 ```bash
 cd gleamunison-cf
